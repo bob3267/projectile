@@ -1,0 +1,638 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Моделирование движения тела</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; height: 100%; }
+  body {
+    font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+    background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%);
+    color: #1e293b;
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+  }
+  header {
+    background: #ffffff;
+    padding: 14px 22px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-shrink: 0;
+  }
+  header h1 { margin: 0; font-size: 17px; font-weight: 700; }
+  header .subtitle { color: #64748b; font-size: 12px; }
+  header .g-tag {
+    font-size: 12px;
+    color: #64748b;
+    padding: 5px 10px;
+    background: #f1f5f9;
+    border-radius: 5px;
+    margin-left: auto;
+    font-weight: 700;
+  }
+  main {
+    display: flex;
+    gap: 12px;
+    padding: 14px;
+    flex: 1;
+    min-height: 0;
+    min-height: 600px;
+  }
+  .col { display: flex; flex-direction: column; gap: 12px; }
+  .col-left  { width: 260px; flex-shrink: 0; }
+  .col-right { width: 300px; flex-shrink: 0; overflow-y: auto; }
+  .card {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 12px 14px;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+  }
+  .card h2 {
+    margin: 0 0 10px;
+    font-size: 12px;
+    color: #1e293b;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+  }
+  .field {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 6px;
+  }
+  .field label { font-size: 12px; color: #64748b; }
+  .field input {
+    width: 90px;
+    padding: 6px 8px;
+    font-family: Consolas, monospace;
+    font-size: 12px;
+    font-weight: 700;
+    color: #1e293b;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 5px;
+    outline: none;
+  }
+  .field input:focus { border-color: #2563eb; background: #fff; }
+  .presets { display: flex; gap: 4px; margin-top: 8px; }
+  .presets button {
+    flex: 1;
+    padding: 6px 4px;
+    font-size: 11px;
+    background: #f8fafc;
+    color: #1e293b;
+    border: 1px solid #e2e8f0;
+    border-radius: 5px;
+    cursor: pointer;
+  }
+  .presets button:hover { background: #e2e8f0; }
+  .btn {
+    padding: 10px 14px;
+    border: none;
+    border-radius: 6px;
+    font-family: inherit;
+    font-weight: 700;
+    font-size: 13px;
+    color: #fff;
+    cursor: pointer;
+  }
+  .btn-start { background: #16a34a; width: 100%; }
+  .btn-start:hover { background: #15803d; }
+  .btn-row { display: flex; gap: 6px; }
+  .btn-pause { background: #64748b; flex: 1; }
+  .btn-pause:hover { background: #475569; }
+  .btn-reset { background: #dc2626; flex: 1; }
+  .btn-reset:hover { background: #b91c1c; }
+
+  /* ★ ГЛАВНОЕ ИСПРАВЛЕНИЕ: явная высота для canvas */
+  .canvas-wrap {
+    flex: 1;
+    min-width: 300px;
+    min-height: 420px;
+    background: #fefefe;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    overflow: hidden;
+    position: relative;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+  }
+  canvas { display: block; width: 100%; height: 100%; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  table th {
+    text-align: right;
+    padding: 4px 0;
+    font-size: 10px;
+    text-transform: uppercase;
+    border-bottom: 1px solid #e2e8f0;
+  }
+  table th:first-child { text-align: left; }
+  table th.ideal { color: #2563eb; }
+  table th.real  { color: #ea580c; }
+  table td { padding: 4px 0; color: #64748b; font-size: 11px; }
+  table td.v {
+    text-align: right;
+    font-family: Consolas, monospace;
+    font-weight: 700;
+    font-size: 12px;
+    color: #1e293b;
+  }
+  .bar-row { display: flex; gap: 8px; margin-top: 10px; }
+  .bar-col { flex: 1; }
+  .bar-col .bar-label {
+    font-size: 10px;
+    font-weight: 700;
+    margin-bottom: 3px;
+    text-transform: uppercase;
+  }
+  .bar-col.ideal .bar-label { color: #2563eb; }
+  .bar-col.real .bar-label  { color: #ea580c; }
+  .bar {
+    height: 14px;
+    background: #f1f5f9;
+    border-radius: 4px;
+    overflow: hidden;
+    position: relative;
+  }
+  .bar .fill {
+    height: 100%;
+    background: #16a34a;
+    transition: width 0.05s linear;
+  }
+  .bar .pct {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 9px;
+    font-weight: 700;
+    color: #fff;
+    text-shadow: 0 1px 1px rgba(0,0,0,0.15);
+  }
+  /* ★ Сообщение об ошибке, если скрипт упал */
+  #err {
+    display: none;
+    position: fixed;
+    top: 60px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #fef2f2;
+    color: #991b1b;
+    border: 1px solid #fecaca;
+    padding: 10px 16px;
+    border-radius: 8px;
+    font-size: 13px;
+    z-index: 1000;
+    max-width: 90%;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  }
+</style>
+</head>
+<body>
+<div id="err"></div>
+<header>
+  <h1>🎯 Моделирование движения тела</h1>
+  <span class="subtitle">Сравнение идеальной и реалистичной моделей</span>
+  <span class="g-tag" id="g-tag">g = 9.81 м/с²</span>
+</header>
+<main>
+  <aside class="col col-left">
+    <div class="card">
+      <h2>Параметры</h2>
+      <div class="field"><label>Скорость, м/с</label><input id="v0" value="20"></div>
+      <div class="field"><label>Угол, ° (0–90)</label><input id="ang" value="45"></div>
+      <div class="field"><label>Высота старта, м</label><input id="h0" value="0"></div>
+      <div class="field"><label>Масса, кг</label><input id="m" value="1"></div>
+      <div class="field"><label>Сопротивление, кг/м</label><input id="c" value="0.005"></div>
+      <div class="field"><label>g, м/с² (0,1…100)</label><input id="g" value="9.81"></div>
+      <div class="presets">
+        <button onclick="setG(9.81)">🌍 Земля</button>
+        <button onclick="setG(1.62)">🌙 Луна</button>
+        <button onclick="setG(3.71)">🔴 Марс</button>
+      </div>
+    </div>
+    <button class="btn btn-start" onclick="start()">▶ Старт</button>
+    <div class="btn-row">
+      <button class="btn btn-pause" onclick="pause()">⏸ Пауза</button>
+      <button class="btn btn-reset" onclick="reset()">↻ Сброс</button>
+    </div>
+  </aside>
+  <div class="canvas-wrap">
+    <canvas id="cv"></canvas>
+  </div>
+  <aside class="col col-right">
+    <div class="card">
+      <h2>Текущие значения</h2>
+      <table>
+        <tr><th></th><th class="ideal">Идеал</th><th class="real">Реалист</th></tr>
+        <tr><td>Время, с</td><td class="v" id="t_i">—</td><td class="v" id="t_r">—</td></tr>
+        <tr><td>x, м</td><td class="v" id="x_i">—</td><td class="v" id="x_r">—</td></tr>
+        <tr><td>y, м</td><td class="v" id="y_i">—</td><td class="v" id="y_r">—</td></tr>
+        <tr><td>Скорость, м/с</td><td class="v" id="v_i">—</td><td class="v" id="v_r">—</td></tr>
+      </table>
+    </div>
+    <div class="card">
+      <h2>Энергия</h2>
+      <table>
+        <tr><th></th><th class="ideal">Идеал</th><th class="real">Реалист</th></tr>
+        <tr><td>Кинетическая, Дж</td><td class="v" id="ek_i">—</td><td class="v" id="ek_r">—</td></tr>
+        <tr><td>Потенциальная, Дж</td><td class="v" id="ep_i">—</td><td class="v" id="ep_r">—</td></tr>
+        <tr><td>Полная, Дж</td><td class="v" id="e_i">—</td><td class="v" id="e_r">—</td></tr>
+        <tr><td>Потери, Дж</td><td class="v" id="loss_i">—</td><td class="v" id="loss_r">—</td></tr>
+      </table>
+      <div class="bar-row">
+        <div class="bar-col ideal">
+          <div class="bar-label">Идеал</div>
+          <div class="bar"><div class="fill" id="bar_i" style="width:100%"></div><div class="pct" id="pct_i">100%</div></div>
+        </div>
+        <div class="bar-col real">
+          <div class="bar-label">Реалист</div>
+          <div class="bar"><div class="fill" id="bar_r" style="width:100%"></div><div class="pct" id="pct_r">100%</div></div>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Итоги полёта</h2>
+      <table>
+        <tr><th></th><th class="ideal">Идеал</th><th class="real">Реалист</th></tr>
+        <tr><td>Время полёта, с</td><td class="v" id="T_i">—</td><td class="v" id="T_r">—</td></tr>
+        <tr><td>Макс. высота, м</td><td class="v" id="h_i">—</td><td class="v" id="h_r">—</td></tr>
+        <tr><td>Дальность, м</td><td class="v" id="L_i">—</td><td class="v" id="L_r">—</td></tr>
+      </table>
+    </div>
+  </aside>
+</main>
+
+<script>
+// ★ Показываем ошибку на странице, а не только в консоли
+function showError(msg) {
+  var el = document.getElementById('err');
+  el.textContent = '⚠ Ошибка: ' + msg;
+  el.style.display = 'block';
+  console.error(msg);
+}
+
+try {
+  console.log('[1] Скрипт начал выполняться');
+
+  // ---------- константы ----------
+  var DT = 0.002;
+  var MAX_STEPS = 200000;
+  var CI = '#2563eb', CR = '#ea580c';
+
+  var cv = document.getElementById('cv');
+  if (!cv) throw new Error('Canvas #cv не найден');
+  var ctx = cv.getContext('2d');
+  if (!ctx) throw new Error('Не удалось получить 2D-контекст canvas');
+  console.log('[2] Canvas и контекст получены');
+
+  // ---------- состояние ----------
+  var SI = [], SR = [];
+  var sim = 0, running = false, raf = null;
+  var scale = 1, margin = 50, totalT = 0;
+  var totI = {t:0, h:0, L:0}, totR = {t:0, h:0, L:0};
+  var G = 9.81, E0i = 1, E0r = 1;
+  var last = 0;
+
+  // ---------- безопасный максимум (без Math.max(...)) ----------
+  function maxOf(arr, key) {
+    var m = -Infinity;
+    for (var i = 0; i < arr.length; i++) {
+      var v = arr[i][key];
+      if (v > m) m = v;
+    }
+    return m === -Infinity ? 0 : m;
+  }
+
+  // ---------- физика ----------
+  function deriv(s, m, c, g, real) {
+    var vx = s[2], vy = s[3];
+    var sp = Math.sqrt(vx*vx + vy*vy);
+    var ax = 0, ay = -g;
+    if (real && sp > 1e-9) {
+      var f = c * sp * sp;
+      ax -= f * vx / sp / m;
+      ay -= f * vy / sp / m;
+    }
+    return [vx, vy, ax, ay];
+  }
+
+  function simulate(v0, angDeg, h0, m, c, g, real) {
+    var a = angDeg * Math.PI / 180;
+    var s = [0, h0, v0*Math.cos(a), v0*Math.sin(a)];
+    var t = 0;
+    var out = [];
+    for (var i = 0; i < MAX_STEPS; i++) {
+      var x = s[0], y = s[1], vx = s[2], vy = s[3];
+      var sp = Math.sqrt(vx*vx + vy*vy);
+      var d = deriv(s, m, c, g, real);
+      var ax = d[2], ay = d[3];
+      var ek = 0.5*m*sp*sp;
+      var ep = m*g*(y > 0 ? y : 0);
+      out.push({t:t, x:x, y:y, vx:vx, vy:vy, sp:sp, ax:ax, ay:ay, ek:ek, ep:ep, e:ek+ep});
+
+      // шаг Рунге–Кутты 4
+      var k1 = deriv(s, m, c, g, real);
+      var s2 = [s[0]+DT/2*k1[0], s[1]+DT/2*k1[1], s[2]+DT/2*k1[2], s[3]+DT/2*k1[3]];
+      var k2 = deriv(s2, m, c, g, real);
+      var s3 = [s[0]+DT/2*k2[0], s[1]+DT/2*k2[1], s[2]+DT/2*k2[2], s[3]+DT/2*k2[3]];
+      var k3 = deriv(s3, m, c, g, real);
+      var s4 = [s[0]+DT*k3[0], s[1]+DT*k3[1], s[2]+DT*k3[2], s[3]+DT*k3[3]];
+      var k4 = deriv(s4, m, c, g, real);
+
+      var nx = s[0] + DT/6*(k1[0]+2*k2[0]+2*k3[0]+k4[0]);
+      var ny = s[1] + DT/6*(k1[1]+2*k2[1]+2*k3[1]+k4[1]);
+      var nvx = s[2] + DT/6*(k1[2]+2*k2[2]+2*k3[2]+k4[2]);
+      var nvy = s[3] + DT/6*(k1[3]+2*k2[3]+2*k3[3]+k4[3]);
+
+      if (ny < 0 && t > 0) {
+        var f2 = s[1] / (s[1] - ny);
+        var lx = s[0] + f2*(nx - s[0]);
+        var lvx = s[2] + f2*(nvx - s[2]);
+        var lvy = s[3] + f2*(nvy - s[3]);
+        var sp2 = Math.sqrt(lvx*lvx + lvy*lvy);
+        var ek2 = 0.5*m*sp2*sp2;
+        out.push({t:t+f2*DT, x:lx, y:0, vx:lvx, vy:lvy, sp:sp2,
+                  ax:0, ay:-g, ek:ek2, ep:0, e:ek2});
+        break;
+      }
+      s = [nx, ny, nvx, nvy];
+      t += DT;
+    }
+    return out;
+  }
+
+  // ---------- размер canvas ----------
+  function resize() {
+    var rect = cv.getBoundingClientRect();
+    var w = Math.max(rect.width, 100);
+    var h = Math.max(rect.height, 100);
+    cv.width = w;
+    cv.height = h;
+    console.log('[resize] canvas:', w, 'x', h);
+    draw();
+  }
+
+  // ---------- утилиты отрисовки ----------
+  function toS(x, y) {
+    return [margin + x*scale, cv.height - margin - y*scale];
+  }
+
+  function niceStep(span) {
+    var raw = span / 8;
+    var mag = Math.pow(10, Math.floor(Math.log(raw)/Math.LN10));
+    var arr = [1, 2, 2.5, 5, 10];
+    for (var i = 0; i < arr.length; i++) {
+      if (raw <= arr[i]*mag) return arr[i]*mag;
+    }
+    return 10*mag;
+  }
+
+  function drawEmpty() {
+    ctx.clearRect(0, 0, cv.width, cv.height);
+    ctx.fillStyle = '#94a3b8';
+    ctx.textAlign = 'center';
+    ctx.font = '40px Arial';
+    ctx.fillText('🎯', cv.width/2, cv.height/2 - 20);
+    ctx.font = '14px Arial';
+    ctx.fillStyle = '#64748b';
+    ctx.fillText('Задайте параметры и нажмите «Старт»', cv.width/2, cv.height/2 + 20);
+    ctx.font = '12px Arial';
+    ctx.fillStyle = '#94a3b8';
+    ctx.fillText('Показаны обе траектории: синяя — идеальная, оранжевая — реалистичная',
+                 cv.width/2, cv.height/2 + 44);
+    ctx.textAlign = 'start';
+  }
+
+  function draw() {
+    ctx.clearRect(0, 0, cv.width, cv.height);
+    if (!SI.length) { drawEmpty(); return; }
+
+    var maxX = Math.max(totI.L, totR.L, 1);
+    var maxY = Math.max(totI.h, totR.h, 1);
+    var ww = cv.width - 2*margin;
+    var wh = cv.height - 2*margin;
+    scale = Math.min(ww/maxX, wh/maxY);
+
+    // сетка
+    var stepX = niceStep(ww/scale);
+    var stepY = niceStep(wh/scale);
+    ctx.strokeStyle = '#e2e8f0';
+    ctx.lineWidth = 1;
+    for (var x = 0; x*scale < ww; x += stepX) {
+      var sx = margin + x*scale;
+      ctx.beginPath(); ctx.moveTo(sx, margin); ctx.lineTo(sx, cv.height-margin); ctx.stroke();
+    }
+    for (var y = 0; y*scale < wh; y += stepY) {
+      var sy = cv.height - margin - y*scale;
+      ctx.beginPath(); ctx.moveTo(margin, sy); ctx.lineTo(cv.width-margin, sy); ctx.stroke();
+    }
+    // оси
+    ctx.strokeStyle = '#1e293b';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(margin-5, cv.height-margin);
+    ctx.lineTo(cv.width-margin, cv.height-margin);
+    ctx.moveTo(margin, cv.height-margin+5);
+    ctx.lineTo(margin, margin);
+    ctx.stroke();
+
+    // индекс по времени
+    var iI = Math.floor(sim/DT); if (iI >= SI.length) iI = SI.length-1; if (iI < 0) iI = 0;
+    var iR = Math.floor(sim/DT); if (iR >= SR.length) iR = SR.length-1; if (iR < 0) iR = 0;
+    var sI = SI[iI], sR = SR[iR];
+
+    // следы
+    ctx.strokeStyle = CI; ctx.lineWidth = 2; ctx.beginPath();
+    var skipI = Math.max(1, Math.floor(iI/800));
+    for (var i = 0; i <= iI; i += skipI) {
+      var p = toS(SI[i].x, SI[i].y);
+      if (i === 0) ctx.moveTo(p[0], p[1]); else ctx.lineTo(p[0], p[1]);
+    }
+    ctx.stroke();
+
+    ctx.strokeStyle = CR; ctx.beginPath();
+    var skipR = Math.max(1, Math.floor(iR/800));
+    for (var j = 0; j <= iR; j += skipR) {
+      var p2 = toS(SR[j].x, SR[j].y);
+      if (j === 0) ctx.moveTo(p2[0], p2[1]); else ctx.lineTo(p2[0], p2[1]);
+    }
+    ctx.stroke();
+
+    // тела
+    var b1 = toS(sI.x, sI.y);
+    ctx.fillStyle = CI; ctx.beginPath(); ctx.arc(b1[0], b1[1], 8, 0, Math.PI*2); ctx.fill();
+    ctx.strokeStyle = '#1e3a8a'; ctx.lineWidth = 2; ctx.stroke();
+
+    var b2 = toS(sR.x, sR.y);
+    ctx.fillStyle = CR; ctx.beginPath(); ctx.arc(b2[0], b2[1], 8, 0, Math.PI*2); ctx.fill();
+    ctx.strokeStyle = '#7c2d12'; ctx.stroke();
+
+    // легенда (без roundRect — обычный прямоугольник)
+    var lx = cv.width - 190;
+    ctx.fillStyle = 'rgba(255,255,255,0.92)';
+    ctx.strokeStyle = '#e2e8f0'; ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.rect(lx - 10, 12, 178, 50);
+    ctx.fill(); ctx.stroke();
+    ctx.strokeStyle = CI; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(lx, 26); ctx.lineTo(lx+24, 26); ctx.stroke();
+    ctx.fillStyle = CI; ctx.font = 'bold 11px Arial';
+    ctx.fillText('идеальная', lx+30, 30);
+    ctx.strokeStyle = CR;
+    ctx.beginPath(); ctx.moveTo(lx, 46); ctx.lineTo(lx+24, 46); ctx.stroke();
+    ctx.fillStyle = CR;
+    ctx.fillText('реалистичная', lx+30, 50);
+
+    // значения
+    function set(id, v) { var el = document.getElementById(id); if (el) el.textContent = v; }
+    set('t_i', sI.t.toFixed(2)); set('t_r', sR.t.toFixed(2));
+    set('x_i', sI.x.toFixed(2)); set('x_r', sR.x.toFixed(2));
+    set('y_i', sI.y.toFixed(2)); set('y_r', sR.y.toFixed(2));
+    set('v_i', sI.sp.toFixed(2)); set('v_r', sR.sp.toFixed(2));
+    set('ek_i', sI.ek.toFixed(2)); set('ek_r', sR.ek.toFixed(2));
+    set('ep_i', sI.ep.toFixed(2)); set('ep_r', sR.ep.toFixed(2));
+    set('e_i', sI.e.toFixed(2));   set('e_r', sR.e.toFixed(2));
+    set('loss_i', Math.max(0, E0i - sI.e).toFixed(2));
+    set('loss_r', Math.max(0, E0r - sR.e).toFixed(2));
+    set('T_i', totI.t.toFixed(2)); set('T_r', totR.t.toFixed(2));
+    set('h_i', totI.h.toFixed(2)); set('h_r', totR.h.toFixed(2));
+    set('L_i', totI.L.toFixed(2)); set('L_r', totR.L.toFixed(2));
+
+    updateBar('bar_i', 'pct_i', sI.e / E0i);
+    updateBar('bar_r', 'pct_r', sR.e / E0r);
+  }
+
+  function updateBar(barId, pctId, frac) {
+    if (frac < 0) frac = 0;
+    if (frac > 1) frac = 1;
+    var bar = document.getElementById(barId);
+    var pct = document.getElementById(pctId);
+    bar.style.width = (frac*100) + '%';
+    bar.style.background = frac > 0.7 ? '#16a34a' : (frac > 0.4 ? '#f59e0b' : '#dc2626');
+    pct.textContent = Math.round(frac*100) + '%';
+  }
+
+  // ---------- публичные функции ----------
+  window.setG = function(v) {
+    document.getElementById('g').value = v;
+  };
+
+  window.start = function() {
+    try {
+      console.log('[start] Запуск');
+      var num = function(id) {
+        return parseFloat(document.getElementById(id).value.replace(',', '.'));
+      };
+      var v0 = num('v0'), ang = num('ang'), h0 = num('h0'),
+          m = num('m'), c = num('c'), g = num('g');
+
+      if (!(v0 > 0)) return alert('Скорость должна быть больше 0');
+      if (!(ang >= 0 && ang <= 90)) return alert('Угол должен быть 0…90');
+      if (!(h0 >= 0)) return alert('Высота не может быть отрицательной');
+      if (!(m > 0)) return alert('Масса должна быть больше 0');
+      if (!(c >= 0)) return alert('Сопротивление не может быть отрицательным');
+      if (!(g >= 0.1 && g <= 100)) return alert('g должно быть 0,1…100 м/с²');
+      if (ang === 0 && h0 === 0) return alert('При 0° и h=0 тело сразу на земле');
+
+      G = g;
+      document.getElementById('g-tag').textContent = 'g = ' + g.toFixed(2) + ' м/с²';
+
+      console.log('[start] Расчёт идеальной траектории...');
+      SI = simulate(v0, ang, h0, m, c, g, false);
+      console.log('[start] Точек в идеальной:', SI.length);
+
+      SR = (c > 1e-12) ? simulate(v0, ang, h0, m, c, g, true) : SI;
+      console.log('[start] Точек в реалистичной:', SR.length);
+
+      if (SI.length < 3) return alert('Траектория слишком короткая');
+
+      // ★ БЕЗОПАСНЫЕ max — цикл вместо Math.max(...)
+      totI = {
+        t: SI[SI.length-1].t,
+        h: maxOf(SI, 'y'),
+        L: SI[SI.length-1].x
+      };
+      totR = {
+        t: SR[SR.length-1].t,
+        h: maxOf(SR, 'y'),
+        L: SR[SR.length-1].x
+      };
+      E0i = SI[0].e || 1;
+      E0r = SR[0].e || 1;
+      totalT = Math.max(totI.t, totR.t, 0.01);
+      console.log('[start] Готово. totalT =', totalT);
+
+      sim = 0;
+      running = true;
+      if (raf) cancelAnimationFrame(raf);
+      resize();  // ★ сначала пересчитываем размер canvas
+      last = 0;
+      raf = requestAnimationFrame(loop);
+    } catch (e) {
+      showError(e.message + '\n' + (e.stack || ''));
+    }
+  };
+
+  window.pause = function() {
+    running = false;
+    console.log('[pause]');
+  };
+
+  window.reset = function() {
+    running = false;
+    if (raf) cancelAnimationFrame(raf);
+    SI = []; SR = []; sim = 0;
+    var ids = ['t_i','t_r','x_i','x_r','y_i','y_r','v_i','v_r',
+               'ek_i','ek_r','ep_i','ep_r','e_i','e_r',
+               'loss_i','loss_r','T_i','T_r','h_i','h_r','L_i','L_r'];
+    for (var i = 0; i < ids.length; i++) {
+      var el = document.getElementById(ids[i]);
+      if (el) el.textContent = '—';
+    }
+    document.getElementById('bar_i').style.width = '100%';
+    document.getElementById('bar_r').style.width = '100%';
+    document.getElementById('bar_i').style.background = '#16a34a';
+    document.getElementById('bar_r').style.background = '#16a34a';
+    document.getElementById('pct_i').textContent = '100%';
+    document.getElementById('pct_r').textContent = '100%';
+    drawEmpty();
+  };
+
+  function loop(ts) {
+    if (!running) return;
+    if (!last) last = ts;
+    var dt = (ts - last)/1000;
+    if (dt > 0.05) dt = 0.05;
+    last = ts;
+    sim += dt;
+    if (sim >= totalT) { sim = totalT; running = false; }
+    draw();
+    if (running) raf = requestAnimationFrame(loop);
+  }
+
+  // ---------- инициализация ----------
+  window.addEventListener('resize', resize);
+  // ★ Три попытки resize — гарантированно ловим нужный момент
+  requestAnimationFrame(function() {
+    resize();
+    setTimeout(resize, 100);
+    setTimeout(resize, 500);
+  });
+
+  console.log('[3] Скрипт успешно инициализирован');
+
+} catch (e) {
+  showError(e.message + '\n' + (e.stack || ''));
+}
+</script>
+</body>
+</html>
