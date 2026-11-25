@@ -40,11 +40,10 @@
     gap: 12px;
     padding: 14px;
     flex: 1;
-    min-height: 0;
     min-height: 600px;
   }
   .col { display: flex; flex-direction: column; gap: 12px; }
-  .col-left  { width: 260px; flex-shrink: 0; }
+  .col-left  { width: 270px; flex-shrink: 0; overflow-y: auto; }
   .col-right { width: 300px; flex-shrink: 0; overflow-y: auto; }
   .card {
     background: #ffffff;
@@ -110,8 +109,6 @@
   .btn-pause:hover { background: #475569; }
   .btn-reset { background: #dc2626; flex: 1; }
   .btn-reset:hover { background: #b91c1c; }
-
-  /* ★ ГЛАВНОЕ ИСПРАВЛЕНИЕ: явная высота для canvas */
   .canvas-wrap {
     flex: 1;
     min-width: 300px;
@@ -124,7 +121,6 @@
     box-shadow: 0 1px 2px rgba(0,0,0,0.03);
   }
   canvas { display: block; width: 100%; height: 100%; }
-
   table { width: 100%; border-collapse: collapse; font-size: 12px; }
   table th {
     text-align: right;
@@ -177,7 +173,17 @@
     color: #fff;
     text-shadow: 0 1px 1px rgba(0,0,0,0.15);
   }
-  /* ★ Сообщение об ошибке, если скрипт упал */
+  .info-box {
+    margin-top: 8px;
+    padding: 8px;
+    background: #f8fafc;
+    border-left: 3px solid #2563eb;
+    border-radius: 4px;
+    font-size: 11px;
+    color: #475569;
+    line-height: 1.5;
+  }
+  .info-box b { color: #1e293b; }
   #err {
     display: none;
     position: fixed;
@@ -212,6 +218,7 @@
       <div class="field"><label>Высота старта, м</label><input id="h0" value="0"></div>
       <div class="field"><label>Масса, кг</label><input id="m" value="1"></div>
       <div class="field"><label>Сопротивление, кг/м</label><input id="c" value="0.005"></div>
+      <div class="field"><label>Трение μ, кг/с</label><input id="mu" value="0"></div>
       <div class="field"><label>g, м/с² (0,1…100)</label><input id="g" value="9.81"></div>
       <div class="presets">
         <button onclick="setG(9.81)">🌍 Земля</button>
@@ -223,6 +230,14 @@
     <div class="btn-row">
       <button class="btn btn-pause" onclick="pause()">⏸ Пауза</button>
       <button class="btn btn-reset" onclick="reset()">↻ Сброс</button>
+    </div>
+    <div class="card">
+      <h2>Модель сил</h2>
+      <div class="info-box">
+        <b>F<sub>сопр</sub> = c·v²</b> — квадратичное сопротивление воздуха.<br>
+        <b>F<sub>тр</sub> = μ·v</b> — линейное (вязкое) трение.<br><br>
+        Обе силы действуют против скорости. При μ = 0 работает только c.
+      </div>
     </div>
   </aside>
   <div class="canvas-wrap">
@@ -237,6 +252,16 @@
         <tr><td>x, м</td><td class="v" id="x_i">—</td><td class="v" id="x_r">—</td></tr>
         <tr><td>y, м</td><td class="v" id="y_i">—</td><td class="v" id="y_r">—</td></tr>
         <tr><td>Скорость, м/с</td><td class="v" id="v_i">—</td><td class="v" id="v_r">—</td></tr>
+      </table>
+    </div>
+    <div class="card">
+      <h2>Скорость в ключевых точках</h2>
+      <table>
+        <tr><th></th><th class="ideal">Идеал</th><th class="real">Реалист</th></tr>
+        <tr><td>Старт: v₀, м/с</td><td class="v" id="vs_i">—</td><td class="v" id="vs_r">—</td></tr>
+        <tr><td>Старт: угол, °</td><td class="v" id="as_i">—</td><td class="v" id="as_r">—</td></tr>
+        <tr><td>Верх: v, м/с</td><td class="v" id="vt_i">—</td><td class="v" id="vt_r">—</td></tr>
+        <tr><td>Верх: угол, °</td><td class="v" id="at_i">—</td><td class="v" id="at_r">—</td></tr>
       </table>
     </div>
     <div class="card">
@@ -272,7 +297,6 @@
 </main>
 
 <script>
-// ★ Показываем ошибку на странице, а не только в консоли
 function showError(msg) {
   var el = document.getElementById('err');
   el.textContent = '⚠ Ошибка: ' + msg;
@@ -281,9 +305,6 @@ function showError(msg) {
 }
 
 try {
-  console.log('[1] Скрипт начал выполняться');
-
-  // ---------- константы ----------
   var DT = 0.002;
   var MAX_STEPS = 200000;
   var CI = '#2563eb', CR = '#ea580c';
@@ -291,10 +312,8 @@ try {
   var cv = document.getElementById('cv');
   if (!cv) throw new Error('Canvas #cv не найден');
   var ctx = cv.getContext('2d');
-  if (!ctx) throw new Error('Не удалось получить 2D-контекст canvas');
-  console.log('[2] Canvas и контекст получены');
+  if (!ctx) throw new Error('Не удалось получить 2D-контекст');
 
-  // ---------- состояние ----------
   var SI = [], SR = [];
   var sim = 0, running = false, raf = null;
   var scale = 1, margin = 50, totalT = 0;
@@ -302,30 +321,49 @@ try {
   var G = 9.81, E0i = 1, E0r = 1;
   var last = 0;
 
-  // ---------- безопасный максимум (без Math.max(...)) ----------
+  // ★ ИНФОРМАЦИЯ О КЛЮЧЕВЫХ ТОЧКАХ (для векторов)
+  var keyInfo = {
+    ideal: {startVx:0, startVy:0, startV:0, startAngle:0,
+            topIdx:0, topV:0, topAngle:0},
+    real:  {startVx:0, startVy:0, startV:0, startAngle:0,
+            topIdx:0, topV:0, topAngle:0}
+  };
+
   function maxOf(arr, key) {
     var m = -Infinity;
     for (var i = 0; i < arr.length; i++) {
-      var v = arr[i][key];
-      if (v > m) m = v;
+      if (arr[i][key] > m) m = arr[i][key];
     }
     return m === -Infinity ? 0 : m;
   }
 
-  // ---------- физика ----------
-  function deriv(s, m, c, g, real) {
+  // Находит индекс верхней точки (максимум y)
+  function findTopIndex(arr) {
+    var idx = 0, maxY = -Infinity;
+    for (var i = 0; i < arr.length; i++) {
+      if (arr[i].y > maxY) { maxY = arr[i].y; idx = i; }
+    }
+    return idx;
+  }
+
+  // ★ ФИЗИКА: теперь с μ (линейное трение) и c (квадратичное)
+  function deriv(s, m, c, mu, g, real) {
     var vx = s[2], vy = s[3];
     var sp = Math.sqrt(vx*vx + vy*vy);
     var ax = 0, ay = -g;
     if (real && sp > 1e-9) {
-      var f = c * sp * sp;
-      ax -= f * vx / sp / m;
-      ay -= f * vy / sp / m;
+      // F_сопр = c·v²  (против скорости)
+      var f_quad = c * sp * sp;
+      // F_тр = μ·v  (против скорости)
+      var f_lin = mu * sp;
+      var f_total = f_quad + f_lin;
+      ax -= f_total * vx / sp / m;
+      ay -= f_total * vy / sp / m;
     }
     return [vx, vy, ax, ay];
   }
 
-  function simulate(v0, angDeg, h0, m, c, g, real) {
+  function simulate(v0, angDeg, h0, m, c, mu, g, real) {
     var a = angDeg * Math.PI / 180;
     var s = [0, h0, v0*Math.cos(a), v0*Math.sin(a)];
     var t = 0;
@@ -333,20 +371,19 @@ try {
     for (var i = 0; i < MAX_STEPS; i++) {
       var x = s[0], y = s[1], vx = s[2], vy = s[3];
       var sp = Math.sqrt(vx*vx + vy*vy);
-      var d = deriv(s, m, c, g, real);
+      var d = deriv(s, m, c, mu, g, real);
       var ax = d[2], ay = d[3];
       var ek = 0.5*m*sp*sp;
       var ep = m*g*(y > 0 ? y : 0);
       out.push({t:t, x:x, y:y, vx:vx, vy:vy, sp:sp, ax:ax, ay:ay, ek:ek, ep:ep, e:ek+ep});
 
-      // шаг Рунге–Кутты 4
-      var k1 = deriv(s, m, c, g, real);
+      var k1 = deriv(s, m, c, mu, g, real);
       var s2 = [s[0]+DT/2*k1[0], s[1]+DT/2*k1[1], s[2]+DT/2*k1[2], s[3]+DT/2*k1[3]];
-      var k2 = deriv(s2, m, c, g, real);
+      var k2 = deriv(s2, m, c, mu, g, real);
       var s3 = [s[0]+DT/2*k2[0], s[1]+DT/2*k2[1], s[2]+DT/2*k2[2], s[3]+DT/2*k2[3]];
-      var k3 = deriv(s3, m, c, g, real);
+      var k3 = deriv(s3, m, c, mu, g, real);
       var s4 = [s[0]+DT*k3[0], s[1]+DT*k3[1], s[2]+DT*k3[2], s[3]+DT*k3[3]];
-      var k4 = deriv(s4, m, c, g, real);
+      var k4 = deriv(s4, m, c, mu, g, real);
 
       var nx = s[0] + DT/6*(k1[0]+2*k2[0]+2*k3[0]+k4[0]);
       var ny = s[1] + DT/6*(k1[1]+2*k2[1]+2*k3[1]+k4[1]);
@@ -370,18 +407,29 @@ try {
     return out;
   }
 
-  // ---------- размер canvas ----------
+  // Заполняет keyInfo для одной траектории
+  function fillKeyInfo(states, key) {
+    if (!states.length) return;
+    var s0 = states[0];
+    var ang0 = Math.atan2(s0.vy, s0.vx) * 180 / Math.PI;
+    var topIdx = findTopIndex(states);
+    var st = states[topIdx];
+    var angTop = Math.atan2(st.vy, st.vx) * 180 / Math.PI;
+    keyInfo[key] = {
+      startVx: s0.vx, startVy: s0.vy, startV: s0.sp, startAngle: ang0,
+      topIdx: topIdx, topV: st.sp, topAngle: angTop
+    };
+  }
+
   function resize() {
     var rect = cv.getBoundingClientRect();
     var w = Math.max(rect.width, 100);
     var h = Math.max(rect.height, 100);
     cv.width = w;
     cv.height = h;
-    console.log('[resize] canvas:', w, 'x', h);
     draw();
   }
 
-  // ---------- утилиты отрисовки ----------
   function toS(x, y) {
     return [margin + x*scale, cv.height - margin - y*scale];
   }
@@ -412,6 +460,91 @@ try {
     ctx.textAlign = 'start';
   }
 
+  // Рисует стрелку-вектор
+  function drawArrow(x1, y1, x2, y2, color, label, labelSide) {
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+    // наконечник
+    var dx = x2 - x1, dy = y2 - y1;
+    var len = Math.sqrt(dx*dx + dy*dy);
+    if (len < 3) return;
+    var ux = dx/len, uy = dy/len;
+    var ax = x2 - 10*ux, ay = y2 - 10*uy;
+    var px = -uy, py = ux;
+    ctx.beginPath();
+    ctx.moveTo(x2, y2);
+    ctx.lineTo(ax + 4*px, ay + 4*py);
+    ctx.lineTo(ax - 4*px, ay - 4*py);
+    ctx.closePath();
+    ctx.fill();
+    // подпись
+    if (label) {
+      ctx.font = 'bold 11px Arial';
+      var lx = x2 + 8, ly = y2 - 8;
+      if (labelSide === 'left') { lx = x2 - 8; ctx.textAlign = 'right'; }
+      if (labelSide === 'below') { lx = x2; ly = y2 + 14; ctx.textAlign = 'center'; }
+      ctx.fillText(label, lx, ly);
+      ctx.textAlign = 'start';
+    }
+  }
+
+  // ★ Рисует векторы скорости в начальной и верхней точке
+  function drawKeyVectors(states, key, color) {
+    if (!states.length) return;
+    var info = keyInfo[key];
+
+    // ---- вектор в начальной точке ----
+    var s0 = states[0];
+    var p0 = toS(s0.x, s0.y);
+    var k = 90.0 / Math.max(info.startV, 1e-9);  // масштаб до ~90 px
+    var ex = p0[0] + info.startVx * k;
+    var ey = p0[1] - info.startVy * k;
+    var lbl = 'v₀ = ' + info.startV.toFixed(1);
+    drawArrow(p0[0], p0[1], ex, ey, color, lbl, 'above');
+
+    // точка на старте
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(p0[0], p0[1], 4, 0, Math.PI*2);
+    ctx.fill();
+
+    // ---- вектор в верхней точке ----
+    var idx = info.topIdx;
+    if (idx > 0 && idx < states.length) {
+      var st = states[idx];
+      var p1 = toS(st.x, st.y);
+      var k2 = 90.0 / Math.max(info.topV, 1e-9);
+      var ex2 = p1[0] + st.vx * k2;
+      var ey2 = p1[1] - st.vy * k2;
+      // В верхней точке vy ≈ 0, вектор почти горизонтальный.
+      // Если совсем мал — рисуем маленькую точку и подпись.
+      var lbl2 = 'v_top = ' + info.topV.toFixed(1);
+      if (info.topV > 0.5) {
+        drawArrow(p1[0], p1[1], ex2, ey2, color, lbl2, 'above');
+      } else {
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(p1[0], p1[1], 4, 0, Math.PI*2);
+        ctx.fill();
+        ctx.font = 'bold 11px Arial';
+        ctx.fillText(lbl2, p1[0] + 8, p1[1] - 8);
+      }
+      // маркер верхней точки
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([3, 3]);
+      ctx.beginPath();
+      ctx.arc(p1[0], p1[1], 10, 0, Math.PI*2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+  }
+
   function draw() {
     ctx.clearRect(0, 0, cv.width, cv.height);
     if (!SI.length) { drawEmpty(); return; }
@@ -422,7 +555,6 @@ try {
     var wh = cv.height - 2*margin;
     scale = Math.min(ww/maxX, wh/maxY);
 
-    // сетка
     var stepX = niceStep(ww/scale);
     var stepY = niceStep(wh/scale);
     ctx.strokeStyle = '#e2e8f0';
@@ -435,7 +567,6 @@ try {
       var sy = cv.height - margin - y*scale;
       ctx.beginPath(); ctx.moveTo(margin, sy); ctx.lineTo(cv.width-margin, sy); ctx.stroke();
     }
-    // оси
     ctx.strokeStyle = '#1e293b';
     ctx.lineWidth = 2;
     ctx.beginPath();
@@ -445,7 +576,6 @@ try {
     ctx.lineTo(margin, margin);
     ctx.stroke();
 
-    // индекс по времени
     var iI = Math.floor(sim/DT); if (iI >= SI.length) iI = SI.length-1; if (iI < 0) iI = 0;
     var iR = Math.floor(sim/DT); if (iR >= SR.length) iR = SR.length-1; if (iR < 0) iR = 0;
     var sI = SI[iI], sR = SR[iR];
@@ -467,6 +597,10 @@ try {
     }
     ctx.stroke();
 
+    // ★ векторы в ключевых точках
+    drawKeyVectors(SI, 'ideal', CI);
+    drawKeyVectors(SR, 'real', CR);
+
     // тела
     var b1 = toS(sI.x, sI.y);
     ctx.fillStyle = CI; ctx.beginPath(); ctx.arc(b1[0], b1[1], 8, 0, Math.PI*2); ctx.fill();
@@ -476,12 +610,12 @@ try {
     ctx.fillStyle = CR; ctx.beginPath(); ctx.arc(b2[0], b2[1], 8, 0, Math.PI*2); ctx.fill();
     ctx.strokeStyle = '#7c2d12'; ctx.stroke();
 
-    // легенда (без roundRect — обычный прямоугольник)
-    var lx = cv.width - 190;
+    // легенда
+    var lx = cv.width - 230;
     ctx.fillStyle = 'rgba(255,255,255,0.92)';
     ctx.strokeStyle = '#e2e8f0'; ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.rect(lx - 10, 12, 178, 50);
+    ctx.rect(lx - 10, 12, 218, 86);
     ctx.fill(); ctx.stroke();
     ctx.strokeStyle = CI; ctx.lineWidth = 3;
     ctx.beginPath(); ctx.moveTo(lx, 26); ctx.lineTo(lx+24, 26); ctx.stroke();
@@ -491,6 +625,8 @@ try {
     ctx.beginPath(); ctx.moveTo(lx, 46); ctx.lineTo(lx+24, 46); ctx.stroke();
     ctx.fillStyle = CR;
     ctx.fillText('реалистичная', lx+30, 50);
+    ctx.fillStyle = '#64748b'; ctx.font = '10px Arial';
+    ctx.fillText('● — старт, ⊙ — верхняя точка', lx, 72);
 
     // значения
     function set(id, v) { var el = document.getElementById(id); if (el) el.textContent = v; }
@@ -507,6 +643,16 @@ try {
     set('h_i', totI.h.toFixed(2)); set('h_r', totR.h.toFixed(2));
     set('L_i', totI.L.toFixed(2)); set('L_r', totR.L.toFixed(2));
 
+    // ★ данные ключевых точек
+    set('vs_i', keyInfo.ideal.startV.toFixed(2));
+    set('vs_r', keyInfo.real.startV.toFixed(2));
+    set('as_i', keyInfo.ideal.startAngle.toFixed(1));
+    set('as_r', keyInfo.real.startAngle.toFixed(1));
+    set('vt_i', keyInfo.ideal.topV.toFixed(2));
+    set('vt_r', keyInfo.real.topV.toFixed(2));
+    set('at_i', keyInfo.ideal.topAngle.toFixed(1));
+    set('at_r', keyInfo.real.topAngle.toFixed(1));
+
     updateBar('bar_i', 'pct_i', sI.e / E0i);
     updateBar('bar_r', 'pct_r', sR.e / E0r);
   }
@@ -521,60 +667,49 @@ try {
     pct.textContent = Math.round(frac*100) + '%';
   }
 
-  // ---------- публичные функции ----------
   window.setG = function(v) {
     document.getElementById('g').value = v;
   };
 
   window.start = function() {
     try {
-      console.log('[start] Запуск');
       var num = function(id) {
         return parseFloat(document.getElementById(id).value.replace(',', '.'));
       };
       var v0 = num('v0'), ang = num('ang'), h0 = num('h0'),
-          m = num('m'), c = num('c'), g = num('g');
+          m = num('m'), c = num('c'), mu = num('mu'), g = num('g');
 
       if (!(v0 > 0)) return alert('Скорость должна быть больше 0');
       if (!(ang >= 0 && ang <= 90)) return alert('Угол должен быть 0…90');
       if (!(h0 >= 0)) return alert('Высота не может быть отрицательной');
       if (!(m > 0)) return alert('Масса должна быть больше 0');
       if (!(c >= 0)) return alert('Сопротивление не может быть отрицательным');
+      if (!(mu >= 0)) return alert('Коэффициент трения не может быть отрицательным');
       if (!(g >= 0.1 && g <= 100)) return alert('g должно быть 0,1…100 м/с²');
       if (ang === 0 && h0 === 0) return alert('При 0° и h=0 тело сразу на земле');
 
       G = g;
       document.getElementById('g-tag').textContent = 'g = ' + g.toFixed(2) + ' м/с²';
 
-      console.log('[start] Расчёт идеальной траектории...');
-      SI = simulate(v0, ang, h0, m, c, g, false);
-      console.log('[start] Точек в идеальной:', SI.length);
-
-      SR = (c > 1e-12) ? simulate(v0, ang, h0, m, c, g, true) : SI;
-      console.log('[start] Точек в реалистичной:', SR.length);
+      SI = simulate(v0, ang, h0, m, c, mu, g, false);
+      var hasFriction = (c > 1e-12) || (mu > 1e-12);
+      SR = hasFriction ? simulate(v0, ang, h0, m, c, mu, g, true) : SI;
 
       if (SI.length < 3) return alert('Траектория слишком короткая');
 
-      // ★ БЕЗОПАСНЫЕ max — цикл вместо Math.max(...)
-      totI = {
-        t: SI[SI.length-1].t,
-        h: maxOf(SI, 'y'),
-        L: SI[SI.length-1].x
-      };
-      totR = {
-        t: SR[SR.length-1].t,
-        h: maxOf(SR, 'y'),
-        L: SR[SR.length-1].x
-      };
+      totI = {t: SI[SI.length-1].t, h: maxOf(SI, 'y'), L: SI[SI.length-1].x};
+      totR = {t: SR[SR.length-1].t, h: maxOf(SR, 'y'), L: SR[SR.length-1].x};
       E0i = SI[0].e || 1;
       E0r = SR[0].e || 1;
       totalT = Math.max(totI.t, totR.t, 0.01);
-      console.log('[start] Готово. totalT =', totalT);
+
+      fillKeyInfo(SI, 'ideal');
+      fillKeyInfo(SR, 'real');
 
       sim = 0;
       running = true;
       if (raf) cancelAnimationFrame(raf);
-      resize();  // ★ сначала пересчитываем размер canvas
+      resize();
       last = 0;
       raf = requestAnimationFrame(loop);
     } catch (e) {
@@ -582,18 +717,16 @@ try {
     }
   };
 
-  window.pause = function() {
-    running = false;
-    console.log('[pause]');
-  };
+  window.pause = function() { running = false; };
 
   window.reset = function() {
     running = false;
     if (raf) cancelAnimationFrame(raf);
     SI = []; SR = []; sim = 0;
     var ids = ['t_i','t_r','x_i','x_r','y_i','y_r','v_i','v_r',
-               'ek_i','ek_r','ep_i','ep_r','e_i','e_r',
-               'loss_i','loss_r','T_i','T_r','h_i','h_r','L_i','L_r'];
+               'ek_i','ek_r','ep_i','ep_r','e_i','e_r','loss_i','loss_r',
+               'T_i','T_r','h_i','h_r','L_i','L_r',
+               'vs_i','vs_r','as_i','as_r','vt_i','vt_r','at_i','at_r'];
     for (var i = 0; i < ids.length; i++) {
       var el = document.getElementById(ids[i]);
       if (el) el.textContent = '—';
@@ -619,16 +752,12 @@ try {
     if (running) raf = requestAnimationFrame(loop);
   }
 
-  // ---------- инициализация ----------
   window.addEventListener('resize', resize);
-  // ★ Три попытки resize — гарантированно ловим нужный момент
   requestAnimationFrame(function() {
     resize();
     setTimeout(resize, 100);
     setTimeout(resize, 500);
   });
-
-  console.log('[3] Скрипт успешно инициализирован');
 
 } catch (e) {
   showError(e.message + '\n' + (e.stack || ''));
