@@ -218,7 +218,6 @@
       <div class="field"><label>Высота старта, м</label><input id="h0" value="0"></div>
       <div class="field"><label>Масса, кг</label><input id="m" value="1"></div>
       <div class="field"><label>Сопротивление, кг/м</label><input id="c" value="0.005"></div>
-      <div class="field"><label>Трение μ, кг/с</label><input id="mu" value="0"></div>
       <div class="field"><label>g, м/с² (0,1…100)</label><input id="g" value="9.81"></div>
       <div class="presets">
         <button onclick="setG(9.81)">🌍 Земля</button>
@@ -234,9 +233,9 @@
     <div class="card">
       <h2>Модель сил</h2>
       <div class="info-box">
-        <b>F<sub>сопр</sub> = c·v²</b> — квадратичное сопротивление воздуха.<br>
-        <b>F<sub>тр</sub> = μ·v</b> — линейное (вязкое) трение.<br><br>
-        Обе силы действуют против скорости. При μ = 0 работает только c.
+        <b>F<sub>сопр</sub> = c · v²</b> — квадратичное сопротивление воздуха,
+        всегда направлено против скорости.<br><br>
+        При c = 0 реалистичная траектория совпадает с идеальной.
       </div>
     </div>
   </aside>
@@ -321,7 +320,7 @@ try {
   var G = 9.81, E0i = 1, E0r = 1;
   var last = 0;
 
-  // ★ ИНФОРМАЦИЯ О КЛЮЧЕВЫХ ТОЧКАХ (для векторов)
+  // ★ ИНФОРМАЦИЯ О КЛЮЧЕВЫХ ТОЧКАХ
   var keyInfo = {
     ideal: {startVx:0, startVy:0, startV:0, startAngle:0,
             topIdx:0, topV:0, topAngle:0},
@@ -337,7 +336,6 @@ try {
     return m === -Infinity ? 0 : m;
   }
 
-  // Находит индекс верхней точки (максимум y)
   function findTopIndex(arr) {
     var idx = 0, maxY = -Infinity;
     for (var i = 0; i < arr.length; i++) {
@@ -346,24 +344,20 @@ try {
     return idx;
   }
 
-  // ★ ФИЗИКА: теперь с μ (линейное трение) и c (квадратичное)
-  function deriv(s, m, c, mu, g, real) {
+  // ★ ФИЗИКА — только квадратичное сопротивление c·v²
+  function deriv(s, m, c, g, real) {
     var vx = s[2], vy = s[3];
     var sp = Math.sqrt(vx*vx + vy*vy);
     var ax = 0, ay = -g;
     if (real && sp > 1e-9) {
-      // F_сопр = c·v²  (против скорости)
-      var f_quad = c * sp * sp;
-      // F_тр = μ·v  (против скорости)
-      var f_lin = mu * sp;
-      var f_total = f_quad + f_lin;
-      ax -= f_total * vx / sp / m;
-      ay -= f_total * vy / sp / m;
+      var f = c * sp * sp;
+      ax -= f * vx / sp / m;
+      ay -= f * vy / sp / m;
     }
     return [vx, vy, ax, ay];
   }
 
-  function simulate(v0, angDeg, h0, m, c, mu, g, real) {
+  function simulate(v0, angDeg, h0, m, c, g, real) {
     var a = angDeg * Math.PI / 180;
     var s = [0, h0, v0*Math.cos(a), v0*Math.sin(a)];
     var t = 0;
@@ -371,19 +365,19 @@ try {
     for (var i = 0; i < MAX_STEPS; i++) {
       var x = s[0], y = s[1], vx = s[2], vy = s[3];
       var sp = Math.sqrt(vx*vx + vy*vy);
-      var d = deriv(s, m, c, mu, g, real);
+      var d = deriv(s, m, c, g, real);
       var ax = d[2], ay = d[3];
       var ek = 0.5*m*sp*sp;
       var ep = m*g*(y > 0 ? y : 0);
       out.push({t:t, x:x, y:y, vx:vx, vy:vy, sp:sp, ax:ax, ay:ay, ek:ek, ep:ep, e:ek+ep});
 
-      var k1 = deriv(s, m, c, mu, g, real);
+      var k1 = deriv(s, m, c, g, real);
       var s2 = [s[0]+DT/2*k1[0], s[1]+DT/2*k1[1], s[2]+DT/2*k1[2], s[3]+DT/2*k1[3]];
-      var k2 = deriv(s2, m, c, mu, g, real);
+      var k2 = deriv(s2, m, c, g, real);
       var s3 = [s[0]+DT/2*k2[0], s[1]+DT/2*k2[1], s[2]+DT/2*k2[2], s[3]+DT/2*k2[3]];
-      var k3 = deriv(s3, m, c, mu, g, real);
+      var k3 = deriv(s3, m, c, g, real);
       var s4 = [s[0]+DT*k3[0], s[1]+DT*k3[1], s[2]+DT*k3[2], s[3]+DT*k3[3]];
-      var k4 = deriv(s4, m, c, mu, g, real);
+      var k4 = deriv(s4, m, c, g, real);
 
       var nx = s[0] + DT/6*(k1[0]+2*k2[0]+2*k3[0]+k4[0]);
       var ny = s[1] + DT/6*(k1[1]+2*k2[1]+2*k3[1]+k4[1]);
@@ -407,7 +401,6 @@ try {
     return out;
   }
 
-  // Заполняет keyInfo для одной траектории
   function fillKeyInfo(states, key) {
     if (!states.length) return;
     var s0 = states[0];
@@ -460,7 +453,6 @@ try {
     ctx.textAlign = 'start';
   }
 
-  // Рисует стрелку-вектор
   function drawArrow(x1, y1, x2, y2, color, label, labelSide) {
     ctx.strokeStyle = color;
     ctx.fillStyle = color;
@@ -469,7 +461,6 @@ try {
     ctx.moveTo(x1, y1);
     ctx.lineTo(x2, y2);
     ctx.stroke();
-    // наконечник
     var dx = x2 - x1, dy = y2 - y1;
     var len = Math.sqrt(dx*dx + dy*dy);
     if (len < 3) return;
@@ -482,7 +473,6 @@ try {
     ctx.lineTo(ax - 4*px, ay - 4*py);
     ctx.closePath();
     ctx.fill();
-    // подпись
     if (label) {
       ctx.font = 'bold 11px Arial';
       var lx = x2 + 8, ly = y2 - 8;
@@ -493,21 +483,23 @@ try {
     }
   }
 
-  // ★ Рисует векторы скорости в начальной и верхней точке
-  function drawKeyVectors(states, key, color) {
+  // ★ Рисует векторы, ТОЛЬКО если текущий кадр уже за верхней точкой
+  function drawKeyVectors(states, key, color, curIdx) {
     if (!states.length) return;
     var info = keyInfo[key];
+
+    // Главное условие: пока не прошли верхнюю точку — векторов нет
+    if (curIdx < info.topIdx) return;
 
     // ---- вектор в начальной точке ----
     var s0 = states[0];
     var p0 = toS(s0.x, s0.y);
-    var k = 90.0 / Math.max(info.startV, 1e-9);  // масштаб до ~90 px
+    var k = 90.0 / Math.max(info.startV, 1e-9);
     var ex = p0[0] + info.startVx * k;
     var ey = p0[1] - info.startVy * k;
-    var lbl = 'v₀ = ' + info.startV.toFixed(1);
-    drawArrow(p0[0], p0[1], ex, ey, color, lbl, 'above');
+    drawArrow(p0[0], p0[1], ex, ey, color,
+              'v₀ = ' + info.startV.toFixed(1), 'above');
 
-    // точка на старте
     ctx.fillStyle = color;
     ctx.beginPath();
     ctx.arc(p0[0], p0[1], 4, 0, Math.PI*2);
@@ -521,9 +513,8 @@ try {
       var k2 = 90.0 / Math.max(info.topV, 1e-9);
       var ex2 = p1[0] + st.vx * k2;
       var ey2 = p1[1] - st.vy * k2;
-      // В верхней точке vy ≈ 0, вектор почти горизонтальный.
-      // Если совсем мал — рисуем маленькую точку и подпись.
       var lbl2 = 'v_top = ' + info.topV.toFixed(1);
+
       if (info.topV > 0.5) {
         drawArrow(p1[0], p1[1], ex2, ey2, color, lbl2, 'above');
       } else {
@@ -534,7 +525,7 @@ try {
         ctx.font = 'bold 11px Arial';
         ctx.fillText(lbl2, p1[0] + 8, p1[1] - 8);
       }
-      // маркер верхней точки
+
       ctx.strokeStyle = color;
       ctx.lineWidth = 1.5;
       ctx.setLineDash([3, 3]);
@@ -597,9 +588,9 @@ try {
     }
     ctx.stroke();
 
-    // ★ векторы в ключевых точках
-    drawKeyVectors(SI, 'ideal', CI);
-    drawKeyVectors(SR, 'real', CR);
+    // ★ векторы — только после прохождения верхней точки (для каждой траектории отдельно)
+    drawKeyVectors(SI, 'ideal', CI, iI);
+    drawKeyVectors(SR, 'real',  CR, iR);
 
     // тела
     var b1 = toS(sI.x, sI.y);
@@ -626,9 +617,8 @@ try {
     ctx.fillStyle = CR;
     ctx.fillText('реалистичная', lx+30, 50);
     ctx.fillStyle = '#64748b'; ctx.font = '10px Arial';
-    ctx.fillText('● — старт, ⊙ — верхняя точка', lx, 72);
+    ctx.fillText('векторы — после верхней точки', lx, 72);
 
-    // значения
     function set(id, v) { var el = document.getElementById(id); if (el) el.textContent = v; }
     set('t_i', sI.t.toFixed(2)); set('t_r', sR.t.toFixed(2));
     set('x_i', sI.x.toFixed(2)); set('x_r', sR.x.toFixed(2));
@@ -643,7 +633,6 @@ try {
     set('h_i', totI.h.toFixed(2)); set('h_r', totR.h.toFixed(2));
     set('L_i', totI.L.toFixed(2)); set('L_r', totR.L.toFixed(2));
 
-    // ★ данные ключевых точек
     set('vs_i', keyInfo.ideal.startV.toFixed(2));
     set('vs_r', keyInfo.real.startV.toFixed(2));
     set('as_i', keyInfo.ideal.startAngle.toFixed(1));
@@ -677,24 +666,21 @@ try {
         return parseFloat(document.getElementById(id).value.replace(',', '.'));
       };
       var v0 = num('v0'), ang = num('ang'), h0 = num('h0'),
-          m = num('m'), c = num('c'), mu = num('mu'), g = num('g');
+          m = num('m'), c = num('c'), g = num('g');
 
       if (!(v0 > 0)) return alert('Скорость должна быть больше 0');
       if (!(ang >= 0 && ang <= 90)) return alert('Угол должен быть 0…90');
       if (!(h0 >= 0)) return alert('Высота не может быть отрицательной');
       if (!(m > 0)) return alert('Масса должна быть больше 0');
       if (!(c >= 0)) return alert('Сопротивление не может быть отрицательным');
-      if (!(mu >= 0)) return alert('Коэффициент трения не может быть отрицательным');
       if (!(g >= 0.1 && g <= 100)) return alert('g должно быть 0,1…100 м/с²');
       if (ang === 0 && h0 === 0) return alert('При 0° и h=0 тело сразу на земле');
 
       G = g;
       document.getElementById('g-tag').textContent = 'g = ' + g.toFixed(2) + ' м/с²';
 
-      SI = simulate(v0, ang, h0, m, c, mu, g, false);
-      var hasFriction = (c > 1e-12) || (mu > 1e-12);
-      SR = hasFriction ? simulate(v0, ang, h0, m, c, mu, g, true) : SI;
-
+      SI = simulate(v0, ang, h0, m, c, g, false);
+      SR = (c > 1e-12) ? simulate(v0, ang, h0, m, c, g, true) : SI;
       if (SI.length < 3) return alert('Траектория слишком короткая');
 
       totI = {t: SI[SI.length-1].t, h: maxOf(SI, 'y'), L: SI[SI.length-1].x};
